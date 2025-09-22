@@ -5,9 +5,10 @@ from pathlib import Path
 from urllib.parse import to_bytes
 
 def main():
-    launcher_path = Path(input("Enter path to EVE launcher"
-          "\nThis should end with something along the lines of \"app-x.xx.x\" and contain \"eve-online.exe\""
+    launcher_path = Path(input("Enter path to EVE launcher directory"
+          "\nThis should end with something along the lines of \"app-x.xx.x\", and the directory should contain \"eve-online.exe\"."
           "\nFor example, with Steam this would probably be /path/to/steam/steamapps/common/Eve Online/app-x.xx.x/"
+          "\nNOTE: Close the launcher before continuing!"
           "\n: ").strip())
 
     asar_path = launcher_path / "resources" / "app.asar"
@@ -20,16 +21,39 @@ def main():
         print("ERROR: Couldn't find eve-online.exe")
         sys.exit(1)
 
+    asar_sha_path = asar_path.with_suffix(".asar.sha256")
+    exe_sha_path = exe_path.with_suffix(".exe.sha256")
+
+    overwrite_asar_backup = False
+    if asar_sha_path.exists():
+        current_hash = sha256_of_file(asar_path)
+        with open(asar_sha_path, "r") as sha_file:
+            if sha_file.read(64) == current_hash:
+                print("ERROR: Looks like app.asar is already patched.")
+                sys.exit(1)
+            else:
+                overwrite_asar_backup = True
+
+    overwrite_exe_backup = False
+    if exe_sha_path.exists():
+        current_hash = sha256_of_file(exe_path)
+        with open(exe_sha_path, "r") as sha_file:
+            if sha_file.read(64) == current_hash:
+                print("ERROR: Looks like eve-online.exe is already patched.")
+                sys.exit(1)
+            else:
+                overwrite_exe_backup = True
+
     asar_backup_path = asar_path.with_suffix(".asar.bak")
     exe_backup_path = exe_path.with_suffix(".exe.bak")
 
     print("Renaming target files")
-    if asar_backup_path.exists():
+    if asar_backup_path.exists() and not overwrite_asar_backup:
         print("Pre-existing asar backup found. Will patch a copy of that.")
     else:
         shutil.move(asar_path, asar_backup_path)
 
-    if exe_backup_path.exists():
+    if exe_backup_path.exists() and not overwrite_exe_backup:
         print("Pre-existing exe backup found. Will patch a copy of that.")
     else:
         shutil.move(exe_path, exe_backup_path)
@@ -43,9 +67,18 @@ def main():
         print(str(e))
         shutil.copy(asar_backup_path, asar_path)
         shutil.copy(exe_backup_path, exe_path)
-        print("Backups restored")
+        print("Backups restored.")
 
-    # TODO: keep a record of the patched file hashes
+    print("Hashing patched files...")
+    asar_hash = sha256_of_file(asar_path)
+    exe_hash = sha256_of_file(exe_path)
+
+    with open(asar_sha_path, "w") as f:
+        f.write(asar_hash)
+    with open(exe_sha_path, "w") as f:
+        f.write(exe_hash)
+
+    print("\nPatched!")
 
 def update_offsets(header, start_point: int, delta: int):
     for name, node in header["files"].items():
@@ -90,7 +123,7 @@ def patch_asar(original_path: Path, new_path: Path):
 
     size_delta = new_index_file_size - original_index_file_size
     if size_delta <= 0:
-        print("ERROR: Couldn't patch asar! This script is probably out of date")
+        print("ERROR: Couldn't patch asar! This script is probably out of date.")
         raise RuntimeError()
 
     new_blocks = []
@@ -149,6 +182,13 @@ def patch_exe(original_path: Path, new_path: Path, original_hash: str, new_hash:
         mm[:] = mm[:].replace(original_hash.encode("utf-8"), new_hash.encode("utf-8"))
         mm.close()
     print("exe patched.")
+
+def sha256_of_file(filepath: Path):
+    sha256 = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(4194304), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 if __name__ == "__main__":
     main()
