@@ -27,7 +27,9 @@ def test(filename):
     files_offset = header_pickle_size + 12
 
     header_length = struct.unpack('I', asarfile.read(4))[0]
-    header_str = asarfile.read(header_length).decode('utf-8')
+    header_bytes = asarfile.read(header_length)
+    orig_header_hash = hashlib.sha256(header_bytes).hexdigest()
+    header_str = header_bytes.decode('utf-8')
 
     header = json.loads(header_str)
 
@@ -49,16 +51,15 @@ def test(filename):
     block_size = index_file["integrity"]["blockSize"]
     for i in range(-(len(index_file_contents) // -block_size)):
         block_start = i * block_size
-        h = hashlib.sha256(index_file_contents[block_start : block_start + block_size])
+        h = hashlib.sha256(index_file_contents[block_start: block_start + block_size])
         new_blocks.append(h.hexdigest())
     index_file["integrity"]["blocks"] = new_blocks
     index_file["integrity"]["hash"] = hashlib.sha256(index_file_contents).hexdigest()
 
     update_offsets(header, index_file_offset, size_delta)
     index_file["size"] += size_delta
-    new_header = json.dumps(header, separators=(',', ':')).encode('utf-8')
+    new_header = json.dumps(header, separators=(',', ':')).encode("utf-8")
     new_header_length = len(new_header)
-    header_size_delta = new_header_length - header_length
 
     new_header_length_aligned = new_header_length + ((4 - (new_header_length % 4)) % 4)
 
@@ -79,6 +80,16 @@ def test(filename):
 
     shutil.copyfileobj(asarfile, new_file)
 
+    new_header_hash = hashlib.sha256(new_header).hexdigest()
+    print(orig_header_hash)
+    print(new_header_hash)
+
+    shutil.copyfile("eve-online.exe", "eve-online.exe.modded")
+
+    with open("eve-online.exe.modded", "r+b") as f:
+        mm = mmap.mmap(f.fileno(), 0)
+        mm[:] = mm[:].replace(orig_header_hash.encode("utf-8"), new_header_hash.encode("utf-8"))
+        mm.close()
 
 def update_offsets(header, start_point: int, delta: int):
     for name, node in header["files"].items():
