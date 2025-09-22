@@ -14,10 +14,10 @@ def main():
     exe_path = launcher_path / "eve-online.exe"
 
     if not asar_path.exists():
-        print("Couldn't find resources/app.asar")
+        print("ERROR: Couldn't find resources/app.asar")
         sys.exit(1)
     if not exe_path.exists():
-        print("Couldn't find eve-online.exe")
+        print("ERROR: Couldn't find eve-online.exe")
         sys.exit(1)
 
     asar_backup_path = asar_path.with_suffix(".asar.bak")
@@ -34,12 +34,18 @@ def main():
     else:
         shutil.move(exe_path, exe_backup_path)
 
-    #try:
-    (original_hash, new_hash) = patch_asar(asar_backup_path, asar_path)
+    try:
+        (original_hash, new_hash) = patch_asar(asar_backup_path, asar_path)
 
-    patch_exe(exe_backup_path, exe_path, original_hash, new_hash)
-    #except:
-    # TODO: handle errors and restore backups
+        patch_exe(exe_backup_path, exe_path, original_hash, new_hash)
+    except Exception as e:
+        print("Ran into a problem, rolling back.")
+        print(str(e))
+        shutil.copy(asar_backup_path, asar_path)
+        shutil.copy(exe_backup_path, exe_path)
+        print("Backups restored")
+
+    # TODO: keep a record of the patched file hashes
 
 def update_offsets(header, start_point: int, delta: int):
     for name, node in header["files"].items():
@@ -62,8 +68,7 @@ def patch_asar(original_path: Path, new_path: Path):
 
     original_file.seek(8)
 
-    header_pickle_size = struct.unpack('I', original_file.read(4))[0]
-    files_offset = header_pickle_size + 12
+    files_offset = struct.unpack('I', original_file.read(4))[0] + 12
 
     original_header_length = struct.unpack('I', original_file.read(4))[0]
     original_header_bytes = original_file.read(original_header_length)
@@ -71,7 +76,6 @@ def patch_asar(original_path: Path, new_path: Path):
     header = json.loads(original_header_bytes.decode('utf-8'))
 
     index_file = header["files"][".webpack"]["files"]["main"]["files"]["index.js"]
-
     index_file_offset = int(index_file["offset"])
 
     original_file.seek(files_offset + index_file_offset, 0)
@@ -84,8 +88,10 @@ def patch_asar(original_path: Path, new_path: Path):
 
     new_index_file_size = len(index_file_contents)
 
-    # TODO: error if nothing changed
     size_delta = new_index_file_size - original_index_file_size
+    if size_delta <= 0:
+        print("ERROR: Couldn't patch asar! This script is probably out of date")
+        raise RuntimeError()
 
     new_blocks = []
     block_size = index_file["integrity"]["blockSize"]
@@ -97,7 +103,7 @@ def patch_asar(original_path: Path, new_path: Path):
     index_file["integrity"]["hash"] = hashlib.sha256(index_file_contents).hexdigest()
 
     update_offsets(header, index_file_offset, size_delta)
-    index_file["size"] += size_delta
+    index_file["size"] = new_index_file_size
     new_header_bytes = json.dumps(header, separators=(',', ':')).encode("utf-8")
     new_header_length = len(new_header_bytes)
 
@@ -113,15 +119,18 @@ def patch_asar(original_path: Path, new_path: Path):
     # length of string
     new_file.write(new_header_length.to_bytes(4, byteorder='little', signed=False))
     new_file.write(new_header_bytes)
-    print(original_header_length)
-    print(new_header_length)
+
     if new_header_length_aligned != new_header_length:
         new_file.write(b'\x00' * (new_header_length_aligned - new_header_length))
 
+    # copy file data up to index.js
     original_file.seek(files_offset, 0)
     new_file.write(original_file.read(index_file_offset))
 
+    # write in the patched file
     new_file.write(index_file_contents)
+
+    # seek to the end of index.js in the original file
     original_file.seek(original_file.tell() + original_index_file_size)
 
     # copy the rest of the contents
