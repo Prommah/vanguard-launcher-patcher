@@ -8,7 +8,7 @@ change all offsets, recalculate hashes
 replace old integrity hash in eve-online.exe
 """
 
-import json, shutil, struct
+import hashlib, json, shutil, struct
 from urllib.parse import to_bytes
 
 def test(filename):
@@ -45,23 +45,28 @@ def test(filename):
 
     size_delta = len(index_file_contents) - index_file_original_size
 
-    # TODO: update hashes for index.js blocks
+    new_blocks = []
+    block_size = index_file["integrity"]["blockSize"]
+    for i in range(-(len(index_file_contents) // -block_size)):
+        block_start = i * block_size
+        h = hashlib.sha256(index_file_contents[block_start : block_start + block_size])
+        new_blocks.append(h.hexdigest())
+    index_file["integrity"]["blocks"] = new_blocks
+    index_file["integrity"]["hash"] = hashlib.sha256(index_file_contents).hexdigest()
 
     update_offsets(header, index_file_offset, size_delta)
     index_file["size"] += size_delta
     new_header = json.dumps(header, separators=(',', ':')).encode('utf-8')
     new_header_length = len(new_header)
     header_size_delta = new_header_length - header_length
-    print(f"header delta: {header_size_delta}")
-    print(f"index delta: {size_delta}")
 
     new_header_length_aligned = new_header_length + ((4 - (new_header_length % 4)) % 4)
 
     new_file = open("app.asar.new", 'wb')
     new_file.write((4).to_bytes(4, byteorder='little', signed=False))
+    new_file.write((new_header_length_aligned + 8).to_bytes(4, byteorder='little', signed=False))
     new_file.write((new_header_length_aligned + 4).to_bytes(4, byteorder='little', signed=False))
-    new_file.write(new_header_length_aligned.to_bytes(4, byteorder='little', signed=False))
-    new_file.write((header_length + header_size_delta).to_bytes(4, byteorder='little', signed=False))
+    new_file.write(new_header_length.to_bytes(4, byteorder='little', signed=False))
     new_file.write(new_header)
     if new_header_length_aligned != new_header_length:
         new_file.write(b'\x00' * (new_header_length_aligned - new_header_length))
