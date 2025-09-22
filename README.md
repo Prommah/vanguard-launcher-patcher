@@ -7,13 +7,16 @@ not work for new launcher versions without some changes.
 Just run the `vanguard-launcher-patcher.py` Python script and pass it the path to
 your EVE launcher when prompted.
 
-Only tested with launcher version `1.11.2`
+Only tested with launcher version `1.11.2`.
+
+If anything goes wrong, the script should restore the original files. If not,
+they should be in the launcher directory: `eve-online.exe.bak` and `resources/app.asar.bak`. 
 
 ### Why is this necessary?
 
 The launcher currently wraps every argument in double quotes in addition to the
 values passed in the arguments.
-For example: `"-GatewayAddress="gateway.production.services.evevanguardtech.com:443"" "-ClientID=eveLauncherTQ"  ...`
+For example: `"-GatewayAddress="gateway.production.services.evevanguardtech.com:443"" "-ClientID=eveLauncherTQ"  ...`.
 
 As far as I can tell, this is unnecessary on both Windows and Linux, and causes
 issues on Linux. On Linux, a shell would strip out these excessive quotes but the

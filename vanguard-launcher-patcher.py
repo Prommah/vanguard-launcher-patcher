@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import hashlib, json, mmap, shutil, struct, sys
+import hashlib, json, mmap, shutil, struct, sys, traceback
 from pathlib import Path
 from urllib.parse import to_bytes
 
@@ -62,12 +62,13 @@ def main():
         (original_hash, new_hash) = patch_asar(asar_backup_path, asar_path)
 
         patch_exe(exe_backup_path, exe_path, original_hash, new_hash)
-    except Exception as e:
-        print("Ran into a problem, rolling back.")
-        print(str(e))
+    except Exception:
+        print(traceback.format_exc())
+        print("ERROR: Ran into a problem, rolling back.")
         shutil.copy(asar_backup_path, asar_path)
         shutil.copy(exe_backup_path, exe_path)
         print("Backups restored.")
+        sys.exit(1)
 
     print("Hashing patched files...")
     asar_hash = sha256_of_file(asar_path)
